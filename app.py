@@ -18,12 +18,19 @@ LOOKBACK_YEARS = 20
 @st.cache_data(ttl=3600)
 def fetch_historical_data():
     """Fetches historical price data for Gold and Silver."""
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=LOOKBACK_YEARS * 365)).strftime('%Y-%m-%d')
     
+    # Generate dates robustly using standard datetime objects
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=LOOKBACK_YEARS * 365)
+    
+    # Format as strings only for the yf.download call
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
+
     try:
-        gold_df = yf.download(TICKER_GOLD, start=start_date, end=end_date, progress=False)
-        silver_df = yf.download(TICKER_SILVER, start=start_date, end=end_date, progress=False)
+        # Pass the formatted string dates
+        gold_df = yf.download(TICKER_GOLD, start=start_date_str, end=end_date_str, progress=False)
+        silver_df = yf.download(TICKER_SILVER, start=start_date_str, end=end_date_str, progress=False)
         
         data_df = pd.concat([
             gold_df['Close'].rename('Gold_Price'), 
@@ -31,8 +38,10 @@ def fetch_historical_data():
         ], axis=1).dropna()
         
         return data_df
+        
     except Exception as e:
-        st.error(f"Error fetching data: {e}. Check ticker symbols or connection.")
+        # If the error persists, it is a local environment issue, but this provides a better message
+        st.error(f"Error fetching data: {e}. Ensure ticker symbols are correct and check your internet connection.")
         return pd.DataFrame()
 
 # --- 3. Simple Linear Regression Model for Prediction ---
@@ -44,7 +53,8 @@ def predict_future_price(data_series, days_to_predict):
     """
     
     # Use the last year of data for trend-based prediction
-    recent_data = data_series.tail(252).to_frame(name='Price')
+    # Use .copy() to prevent SettingWithCopyWarning if data_series is a view
+    recent_data = data_series.tail(252).to_frame(name='Price').copy() 
     
     # Create the Day feature (index for time)
     recent_data['Day'] = np.arange(len(recent_data))
@@ -83,7 +93,7 @@ def main():
     data_df = fetch_historical_data()
 
     if data_df.empty:
-        return
+        st.stop() # Stop the app if data fetching failed
 
     # --- Sidebar Inputs ---
     st.sidebar.header("Prediction Settings")
@@ -100,6 +110,7 @@ def main():
     
     # --- Live Rate Display ---
     current_date = data_df.index[-1].strftime('%Y-%m-%d')
+    # Use .item() to safely extract the float value for f-string formatting
     live_gold = data_df['Gold_Price'].iloc[-1].item()
     live_silver = data_df['Silver_Price'].iloc[-1].item()
 
