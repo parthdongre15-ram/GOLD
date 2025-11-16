@@ -2,18 +2,23 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+# FIX: Import components with aliases for robust environment handling
 from datetime import datetime as dt_datetime, timedelta as dt_timedelta
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 
 # --- 1. Configuration and Constants for NSE/Indian Market ---
-APP_TITLE = "🇮🇳 Gold & Silver ETF Analysis (Indian Market)"
+APP_TITLE = "🇮🇳 Au & Ag ETF Analysis (Indian Market)"
 
-# Ticker symbols for popular Indian Metal ETFs on NSE (requires .NS suffix)
+# Ticker symbols for popular Indian Metal ETFs on NSE
 TICKER_GOLD = 'GOLDBEES.NS'    # Nippon India ETF Gold BeES
 TICKER_SILVER = 'SILVER.NS'    # ICICI Prudential Silver ETF
-PREDICTION_DAYS = 30           # Days to forecast
-LOOKBACK_YEARS = 10            # Adjusted to 10 years for better ETF data availability
+PREDICTION_DAYS = 30           
+LOOKBACK_YEARS = 10           
+
+# Elemental Symbols for Display
+SYMBOL_GOLD = 'Au'
+SYMBOL_SILVER = 'Ag'
 
 # --- 2. Data Fetching ---
 
@@ -21,16 +26,21 @@ LOOKBACK_YEARS = 10            # Adjusted to 10 years for better ETF data availa
 def fetch_historical_data():
     """Fetches historical price data for Indian Gold and Silver ETFs."""
     
-    # Generate dates robustly using standard datetime objects
-    end_date = dt_datetime.now()
-    start_date = end_date - dt_timedelta(days=LOOKBACK_YEARS * 365)
+    # 1. Create datetime objects
+    end_date_obj = dt_datetime.now()
+    start_date_obj = end_date_obj - dt_timedelta(days=LOOKBACK_YEARS * 365)
     
-    # Format as strings only for the yf.download call
-    start_date_str = start_date.strftime('%Y-%m-%d')
-    end_date_str = end_date.strftime('%Y-%m-%d')
+    # 2. Format as strings explicitly for yfinance
+    start_date_str = start_date_obj.strftime('%Y-%m-%d')
+    end_date_str = end_date_obj.strftime('%Y-%m-%d')
 
     try:
-        st.info("Fetching data for GOLDBEES.NS (Gold) and SILVER.NS (Silver) from NSE...")
+        # Check for empty date range (should not happen, but a safeguard)
+        if start_date_str >= end_date_str:
+            raise ValueError("Calculated start date is after or same as end date.")
+            
+        st.info(f"Fetching data for {TICKER_GOLD} ({SYMBOL_GOLD}) and {TICKER_SILVER} ({SYMBOL_SILVER}) from NSE (Data range: {start_date_str} to {end_date_str})...")
+        
         # Pass the formatted string dates
         gold_df = yf.download(TICKER_GOLD, start=start_date_str, end=end_date_str, progress=False)
         silver_df = yf.download(TICKER_SILVER, start=start_date_str, end=end_date_str, progress=False)
@@ -40,10 +50,14 @@ def fetch_historical_data():
             silver_df['Close'].rename('Silver_ETF_Price')
         ], axis=1).dropna()
         
+        if data_df.empty:
+             raise ValueError("Fetched data is empty. Check ticker availability or date range.")
+        
         return data_df
         
     except Exception as e:
-        st.error(f"Error fetching data: {e}. Check ticker symbols or connection.")
+        # This will now include the original error message, hopefully providing a clearer clue
+        st.error(f"Error fetching data: {e}. **Action required:** Please try clearing your Streamlit cache or restarting your environment.")
         return pd.DataFrame()
 
 # --- 3. Simple Linear Regression Model for Prediction ---
@@ -89,8 +103,9 @@ def predict_future_price(data_series, days_to_predict):
 def main():
     st.set_page_config(page_title=APP_TITLE, layout="wide")
     st.title(APP_TITLE)
-    st.caption("Data source: Yahoo Finance (Indian Metal ETFs on NSE).")
+    st.caption(f"Elemental Symbols: **{SYMBOL_GOLD}** (Gold) & **{SYMBOL_SILVER}** (Silver). Data source: NSE Metal ETFs.")
     
+    # Use st.cache_data for this function
     data_df = fetch_historical_data()
 
     if data_df.empty:
@@ -100,7 +115,7 @@ def main():
     st.sidebar.header("Prediction Settings")
     selected_metal = st.sidebar.selectbox(
         'Select Metal ETF for Forecast',
-        ['Gold ETF (GOLDBEES.NS)', 'Silver ETF (SILVER.NS)']
+        [f'{SYMBOL_GOLD} ETF ({TICKER_GOLD})', f'{SYMBOL_SILVER} ETF ({TICKER_SILVER})']
     )
     days_to_forecast = st.sidebar.slider(
         'Days to Forecast',
@@ -110,12 +125,12 @@ def main():
     )
     
     # Determine the series name based on selection
-    if 'Gold' in selected_metal:
+    if SYMBOL_GOLD in selected_metal:
         series_name = 'Gold_ETF_Price'
-        display_symbol = "GOLDBEES"
+        display_symbol = SYMBOL_GOLD
     else:
         series_name = 'Silver_ETF_Price'
-        display_symbol = "SILVER.NS"
+        display_symbol = SYMBOL_SILVER
 
     # --- Live Rate Display ---
     current_date = data_df.index[-1].strftime('%Y-%m-%d')
@@ -126,8 +141,8 @@ def main():
     col1, col2, col3 = st.columns(3)
     
     col1.metric("Date", current_date)
-    col2.metric("Gold ETF (GOLDBEES)", f"₹{live_gold:,.2f}")
-    col3.metric("Silver ETF (SILVER.NS)", f"₹{live_silver:,.2f}")
+    col2.metric(f"{SYMBOL_GOLD} ETF (GOLDBEES)", f"₹{live_gold:,.2f}")
+    col3.metric(f"{SYMBOL_SILVER} ETF (SILVER.NS)", f"₹{live_silver:,.2f}")
     
     st.divider()
 
@@ -136,7 +151,7 @@ def main():
     st.line_chart(data_df, use_container_width=True)
 
     # --- Prediction ---
-    st.header(f"🔮 {selected_metal} Forecast ({days_to_forecast} Trading Days)")
+    st.header(f"🔮 {display_symbol} ETF Forecast ({days_to_forecast} Trading Days)")
     
     series = data_df[series_name]
         
@@ -151,7 +166,7 @@ def main():
     last_actual_date = plot_data.index[-1]
     plot_data.loc[last_actual_date, 'Forecasted Price'] = series.loc[last_actual_date]
     
-    combined_df = pd.concat([plot_data, prediction_df.rename(columns={'Predicted_Price': 'Forecasted Price'})[['Forecasted Price']]])
+    combined_df = pd.concat([plot_data, prediction_df.rename(columns={'Predicted_Price': 'Forecasted Price'})[['Predicted Price']]])
     combined_df = combined_df[~combined_df.index.duplicated(keep='first')]
 
     # Final Prediction Metrics
