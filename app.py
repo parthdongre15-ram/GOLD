@@ -33,7 +33,10 @@ LOOKBACK_YEARS = 5            # 5 years for stock analysis
 
 @st.cache_data(ttl=3600)
 def fetch_historical_data(ticker_symbol):
-    """Fetches historical price data for the selected stock/index."""
+    """
+    Fetches historical price data and ensures the 'Price' column exists
+    to prevent the KeyError during plotting.
+    """
     
     # Create datetime objects
     end_date_obj = dt_datetime.now()
@@ -46,19 +49,29 @@ def fetch_historical_data(ticker_symbol):
     try:
         st.info(f"Fetching data for {ticker_symbol} from {start_date_str} to {end_date_str}...")
         
-        # Pass the formatted string dates
         stock_df = yf.download(ticker_symbol, start=start_date_str, end=end_date_str, progress=False)
         
         if stock_df.empty:
              raise ValueError("Fetched data is empty. Check ticker symbol or date range.")
         
-        # Rename Close column for consistency
-        stock_df = stock_df.rename(columns={'Close': 'Price'})
+        # --- FIX: ROBUST COLUMN RENAMING to prevent KeyError 'Price' ---
+        if 'Close' in stock_df.columns:
+            # Most common column name for closing price
+            stock_df = stock_df.rename(columns={'Close': 'Price'})
+        elif 'Adj Close' in stock_df.columns:
+            # Fallback for adjusted closing price
+            stock_df = stock_df.rename(columns={'Adj Close': 'Price'})
+        else:
+            # If neither is found, raise an error
+            raise ValueError("Could not find a 'Close' or 'Adj Close' column in the data.")
+
+        # Explicitly reduce the DataFrame to only the guaranteed 'Price' column
+        stock_df = stock_df[['Price']]
         
         return stock_df
         
     except Exception as e:
-        st.error(f"Error fetching data for {ticker_symbol}: {e}. Ensure the ticker symbol is correct for the selected exchange.")
+        st.error(f"Error fetching data for {ticker_symbol}: {e}. Please check the ticker and the Yahoo Finance data availability.")
         return pd.DataFrame()
 
 # --- 3. Simple Linear Regression Model for Prediction ---
@@ -141,10 +154,14 @@ def main():
     live_price = data_df['Price'].iloc[-1].item()
     
     # Calculate 1-day change
-    previous_price = data_df['Price'].iloc[-2].item()
-    change = live_price - previous_price
-    change_percent = (change / previous_price) * 100
-
+    if len(data_df) >= 2:
+        previous_price = data_df['Price'].iloc[-2].item()
+        change = live_price - previous_price
+        change_percent = (change / previous_price) * 100
+    else:
+        change = 0
+        change_percent = 0
+        
     st.header(f"💰 {ticker_name} Live Price (₹)")
     col1, col2, col3 = st.columns(3)
     
@@ -156,7 +173,8 @@ def main():
 
     # --- Historical Plot ---
     st.header(f"🗓️ {LOOKBACK_YEARS}-Year Historical Price Trend")
-    st.line_chart(data_df[['Price']], use_container_width=True)
+    # Pass the DataFrame directly since it only contains the 'Price' column
+    st.line_chart(data_df, use_container_width=True)
 
     # --- Prediction ---
     st.header(f"🔮 Price Forecast for {ticker_name} ({days_to_forecast} Trading Days)")
