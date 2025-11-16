@@ -44,6 +44,8 @@ def fetch_historical_data(ticker_symbol):
     end_date_str = end_date_obj.strftime('%Y-%m-%d')
 
     try:
+        st.info(f"Fetching data for {ticker_symbol} from {start_date_str} to {end_date_str}...")
+        
         stock_df = yf.download(ticker_symbol, start=start_date_str, end=end_date_str, progress=False)
         
         if stock_df.empty:
@@ -73,10 +75,16 @@ def prophet_forecast(data_df, days_to_predict):
     
     # Prophet requires columns to be named 'ds' (datestamp) and 'y' (value)
     df_prophet = data_df.reset_index()
+    # Explicitly rename and ensure correct data types for Prophet
     df_prophet = df_prophet.rename(columns={'Date': 'ds', 'Price': 'y'})
     
+    # --- FIX: Ensure 'y' column is a clean Series of floats ---
+    # This prevents the TypeError caused by underlying Pandas/Streamlit complexity
+    df_prophet['y'] = df_prophet['y'].astype(float)
+    df_prophet['ds'] = pd.to_datetime(df_prophet['ds'])
+
+
     # Initialize and configure the Prophet model
-    # Prophet can handle daily data and automatically fits trend/seasonality
     model = Prophet(
         seasonality_mode='multiplicative',
         daily_seasonality=True,
@@ -89,8 +97,8 @@ def prophet_forecast(data_df, days_to_predict):
     # Fit the model
     model.fit(df_prophet)
     
-    # Create a DataFrame for future dates
-    future = model.make_future_dataframe(periods=days_to_predict, freq='B') # 'B' for business days
+    # Create a DataFrame for future dates ('B' for business days)
+    future = model.make_future_dataframe(periods=days_to_predict, freq='B') 
 
     # Make prediction
     forecast = model.predict(future)
@@ -161,6 +169,10 @@ def main():
     
     st.divider()
 
+    # --- Historical Plot ---
+    st.header(f"🗓️ {LOOKBACK_YEARS}-Year Historical Price Trend")
+    st.line_chart(data_df, use_container_width=True)
+
     # --- Prediction Summary ---
     st.header(f"🔮 AI Forecast for {ticker_name} ({days_to_forecast} Trading Days)")
     
@@ -176,25 +188,27 @@ def main():
             f"{prediction_delta:+.2f}% change",
             delta_color="off" 
         )
-        st.dataframe(forecast_df[['Predicted_Price']].style.format({"Predicted_Price": "₹{:,.2f}"}), use_container_width=True)
+        st.dataframe(forecast_df[['Predicted_Price', 'yhat_lower', 'yhat_upper']].style.format({
+            "Predicted_Price": "₹{:,.2f}", 
+            "yhat_lower": "₹{:,.2f}", 
+            "yhat_upper": "₹{:,.2f}"
+        }), use_container_width=True)
+
 
     with col_b:
         # Plot the forecast using Prophet's built-in plotly function
+        # Merge actual data and forecast for a single plot
+        plot_data = data_df.reset_index().rename(columns={'Date': 'ds', 'Price': 'y'})
+        plot_data = pd.concat([plot_data, forecast_df.reset_index().rename(columns={'Date': 'ds', 'Predicted_Price': 'yhat'})[['ds', 'yhat']]])
+        plot_data = plot_data.merge(forecast_df.reset_index().rename(columns={'Date': 'ds'})[['ds', 'yhat_lower', 'yhat_upper']], on='ds', how='left')
+
         fig1 = plot_plotly(model, forecast_df.reset_index())
         fig1.update_layout(
             title=f"Prophet Forecast for {ticker_name}",
             xaxis_title="Date",
             yaxis_title="Closing Price (₹)",
-            showlegend=False,
             height=450,
-            # Add trace of historical data for context
-            shapes=[dict(
-                type="line",
-                xref="x", yref="y",
-                x0=data_df.index[-1], y0=data_df['Price'].iloc[-1],
-                x1=data_df.index[-1], y1=data_df['Price'].iloc[-1],
-                line=dict(color="red", width=2, dash="dash")
-            )]
+            showlegend=True 
         )
         st.plotly_chart(fig1, use_container_width=True)
 
