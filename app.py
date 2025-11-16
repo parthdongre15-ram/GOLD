@@ -1,8 +1,10 @@
+# abc
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+# FIX: Import components with aliases to prevent 'str' object is not callable error
+from datetime import datetime as dt_datetime, timedelta as dt_timedelta
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 
@@ -19,9 +21,9 @@ LOOKBACK_YEARS = 20
 def fetch_historical_data():
     """Fetches historical price data for Gold and Silver."""
     
-    # Generate dates robustly using standard datetime objects
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=LOOKBACK_YEARS * 365)
+    # Use aliased functions (dt_datetime, dt_timedelta)
+    end_date = dt_datetime.now()
+    start_date = end_date - dt_timedelta(days=LOOKBACK_YEARS * 365)
     
     # Format as strings only for the yf.download call
     start_date_str = start_date.strftime('%Y-%m-%d')
@@ -40,8 +42,7 @@ def fetch_historical_data():
         return data_df
         
     except Exception as e:
-        # If the error persists, it is a local environment issue, but this provides a better message
-        st.error(f"Error fetching data: {e}. Ensure ticker symbols are correct and check your internet connection.")
+        st.error(f"Error fetching data: {e}. Check ticker symbols or connection.")
         return pd.DataFrame()
 
 # --- 3. Simple Linear Regression Model for Prediction ---
@@ -52,8 +53,6 @@ def predict_future_price(data_series, days_to_predict):
     based on the last 365 days of data.
     """
     
-    # Use the last year of data for trend-based prediction
-    # Use .copy() to prevent SettingWithCopyWarning if data_series is a view
     recent_data = data_series.tail(252).to_frame(name='Price').copy() 
     
     # Create the Day feature (index for time)
@@ -75,7 +74,8 @@ def predict_future_price(data_series, days_to_predict):
     
     # Create future dates (using business day approximation 'B')
     last_date = recent_data.index[-1]
-    future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=days_to_predict, freq='B')
+    # Use aliased function
+    future_dates = pd.date_range(start=last_date + dt_timedelta(days=1), periods=days_to_predict, freq='B')
     
     prediction_df = pd.DataFrame({
         'Predicted_Price': predicted_prices
@@ -93,7 +93,7 @@ def main():
     data_df = fetch_historical_data()
 
     if data_df.empty:
-        st.stop() # Stop the app if data fetching failed
+        st.stop() 
 
     # --- Sidebar Inputs ---
     st.sidebar.header("Prediction Settings")
@@ -110,7 +110,6 @@ def main():
     
     # --- Live Rate Display ---
     current_date = data_df.index[-1].strftime('%Y-%m-%d')
-    # Use .item() to safely extract the float value for f-string formatting
     live_gold = data_df['Gold_Price'].iloc[-1].item()
     live_silver = data_df['Silver_Price'].iloc[-1].item()
 
@@ -167,7 +166,7 @@ def main():
     
     st.markdown("""
     **Disclaimer:** This is a simple trend prediction for academic purposes only. 
-    It is **not** financial advice. Gold and silver prices are highly volatile and influenced by complex global factors (interest rates, inflation, geopolitics).
+    It is **not** financial advice.
     """)
 
 if __name__ == "__main__":
